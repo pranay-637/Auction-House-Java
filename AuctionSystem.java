@@ -1,12 +1,13 @@
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Timer;
-import java.util.TimerTask;
+import java.util.TimerTask; 
 
 public class AuctionSystem {
     public static void main(String[] args) {
+        AuctionData.resetAndStartTimer();
+        AuctionData.auctionHistory.add("[SYSTEM READY] Item: " + AuctionData.itemName + " | Base: ₹" + AuctionData.basePrice + " | Timer: " + AuctionData.configuredTimerSeconds + "s");
         new MainFrame();
     }
 }
@@ -25,8 +26,9 @@ class AuctionData {
     public static boolean isAuctionActive = true;
     
     public static Timer auctionTimer;
-    public static List<AuctionRoomFrame> activeRooms = new ArrayList<>();
-    public static List<String> auctionHistory = new ArrayList<>();
+    public static ArrayList<AuctionRoomFrame> activeRooms = new ArrayList<>();
+    public static ArrayList<AdminFrame> activeAdmins = new ArrayList<>();
+    public static ArrayList<String> auctionHistory = new ArrayList<>();
 
     //Item nu auction aiya start karvanu
     public static synchronized void resetAndStartTimer() {
@@ -46,7 +48,7 @@ class AuctionData {
                 } else {
                     if (isAuctionActive) {
                         isAuctionActive = false;
-                        String record = "Item: " + itemName + " | Winner: " + winningUser + " | Final Price: $" + currentPrice;
+                        String record = "[AUCTION ENDED] Item: " + itemName + " | Winner: " + winningUser + " | Final Price: ₹" + currentPrice;
                         auctionHistory.add(record);
                     }
                     auctionTimer.cancel();
@@ -60,6 +62,9 @@ class AuctionData {
     public static void broadcastUpdate() {
         for (AuctionRoomFrame room : activeRooms) {
             room.updateDisplay();
+        }
+        for (AdminFrame admin : activeAdmins) {
+            admin.updateDisplay();
         }
     }
 
@@ -132,8 +137,10 @@ class AdminFrame extends Frame implements ActionListener {
     TextField txtItemName, txtItemDesc, txtBasePrice, txtTimerSecs;
     Button btnSaveSettings, btnViewHistory, btnClose;
     TextArea txtHistoryDisplay;
+    Label lblStatus; // shows live bid and leader
 
     public AdminFrame() {
+        AuctionData.activeAdmins.add(this); // register admin to receive live updates
         setTitle("Admin Control Panel");
         setSize(480, 520);
         setLayout(new BorderLayout(10, 10));
@@ -148,7 +155,7 @@ class AdminFrame extends Frame implements ActionListener {
         txtItemDesc = new TextField(AuctionData.itemDesc);
         formPanel.add(txtItemDesc);
 
-        formPanel.add(new Label("  Base Price ($):"));
+        formPanel.add(new Label("  Base Price (₹):"));
         txtBasePrice = new TextField(String.valueOf(AuctionData.basePrice));
         formPanel.add(txtBasePrice);
 
@@ -165,7 +172,9 @@ class AdminFrame extends Frame implements ActionListener {
         formPanel.add(btnViewHistory);
 
         Panel centerPanel = new Panel(new BorderLayout(5, 5));
-        centerPanel.add(new Label("Auction Winner History:"), BorderLayout.NORTH);
+        lblStatus = new Label("Current Bid: ₹" + AuctionData.currentPrice + " | Leader: " + AuctionData.winningUser, Label.CENTER);
+        lblStatus.setForeground(Color.BLUE);
+        centerPanel.add(lblStatus, BorderLayout.NORTH);
         
         txtHistoryDisplay = new TextArea(8, 40);
         txtHistoryDisplay.setEditable(false);
@@ -182,6 +191,7 @@ class AdminFrame extends Frame implements ActionListener {
 
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
+                AuctionData.activeAdmins.remove(AdminFrame.this);
                 dispose();
             }
         });
@@ -191,14 +201,19 @@ class AdminFrame extends Frame implements ActionListener {
         setVisible(true);
     }
 
+    // called live when user bids or timer ticks
+    public void updateDisplay() {
+        lblStatus.setText("Current Bid: ₹" + AuctionData.currentPrice + " | Leader: " + AuctionData.winningUser + " | Time: " + AuctionData.timeRemaining + "s");
+        loadHistory();
+    }
+
     private void loadHistory() {
         txtHistoryDisplay.setText("");
         if (AuctionData.auctionHistory.isEmpty()) {
-            txtHistoryDisplay.setText("No auctions completed yet.");
+            txtHistoryDisplay.setText("No auctions or bids completed yet.");
         } else {
             for (String log : AuctionData.auctionHistory) {
-                txtHistoryDisplay.append(log + "
-");
+                txtHistoryDisplay.append(log + "\n");
             }
         }
     }
@@ -211,7 +226,18 @@ class AdminFrame extends Frame implements ActionListener {
                 String desc = txtItemDesc.getText().trim();
                 int price = Integer.parseInt(txtBasePrice.getText().trim());
                 int secs = Integer.parseInt(txtTimerSecs.getText().trim());
-
+                if (name.isEmpty() || desc.isEmpty()) {
+                    txtHistoryDisplay.setText("Error: Item name and description cannot be empty.");
+                    return;
+                }
+                if (price <= 0) {
+                    txtHistoryDisplay.setText("Error: Base price must be greater than zero.");
+                    return;
+                }
+                if (secs <= 0) {
+                    txtHistoryDisplay.setText("Error: Timer must be greater than zero.");
+                    return;
+                }
                 AuctionData.configuredTimerSeconds = secs;
                 AuctionData.resetAuctionForItem(name, desc, price);
                 AuctionData.resetAndStartTimer();
@@ -224,6 +250,7 @@ class AdminFrame extends Frame implements ActionListener {
         } else if (e.getSource() == btnViewHistory) {
             loadHistory();
         } else if (e.getSource() == btnClose) {
+            AuctionData.activeAdmins.remove(this);
             dispose();
         }
     }
@@ -293,13 +320,13 @@ class AuctionRoomFrame extends Frame implements ActionListener {
         lblItemTitle.setFont(new Font("Arial", Font.BOLD, 16));
 
         lblItemDesc = new Label("Description: " + AuctionData.itemDesc, Label.CENTER);
-        lblBasePrice = new Label("Base Price: $" + AuctionData.basePrice, Label.CENTER);
+        lblBasePrice = new Label("Base Price: ₹" + AuctionData.basePrice, Label.CENTER);
         
         lblTimer = new Label("Time Remaining: " + AuctionData.timeRemaining + "s", Label.CENTER);
         lblTimer.setFont(new Font("Arial", Font.BOLD, 14));
         lblTimer.setForeground(Color.RED);
 
-        lblCurrentPrice = new Label("Current Price: $" + AuctionData.currentPrice, Label.CENTER);
+        lblCurrentPrice = new Label("Current Price: ₹" + AuctionData.currentPrice, Label.CENTER);
         lblCurrentPrice.setFont(new Font("Arial", Font.BOLD, 14));
         lblCurrentPrice.setForeground(Color.BLUE);
 
@@ -316,9 +343,9 @@ class AuctionRoomFrame extends Frame implements ActionListener {
 
         Panel bidPanel = new Panel(new FlowLayout(FlowLayout.CENTER, 10, 15));
         
-        btnBid100 = new Button("Bid +100");
-        btnBid500 = new Button("Bid +500");
-        btnBid1000 = new Button("Bid +1000");
+        btnBid100 = new Button("Bid +₹100");
+        btnBid500 = new Button("Bid +₹500");
+        btnBid1000 = new Button("Bid +₹1000");
         btnClose = new Button("Exit");
 
         btnBid100.addActionListener(this);
@@ -334,8 +361,6 @@ class AuctionRoomFrame extends Frame implements ActionListener {
         add(detailsPanel, BorderLayout.CENTER);
         add(bidPanel, BorderLayout.SOUTH);
 
-        // koi user join kare tyare aaj timer start thai
-        AuctionData.resetAndStartTimer();
         updateDisplay();
 
         addWindowListener(new WindowAdapter() {
@@ -352,8 +377,8 @@ class AuctionRoomFrame extends Frame implements ActionListener {
     public void updateDisplay() {
         lblItemTitle.setText("Item: " + AuctionData.itemName);
         lblItemDesc.setText("Description: " + AuctionData.itemDesc);
-        lblBasePrice.setText("Base Price: $" + AuctionData.basePrice);
-        lblCurrentPrice.setText("Current Price: $" + AuctionData.currentPrice);
+        lblBasePrice.setText("Base Price: ₹" + AuctionData.basePrice);
+        lblCurrentPrice.setText("Current Price: ₹" + AuctionData.currentPrice);
 
         if (AuctionData.isAuctionActive) {
             lblTimer.setText("Time Remaining: " + AuctionData.timeRemaining + "s");
@@ -370,7 +395,7 @@ class AuctionRoomFrame extends Frame implements ActionListener {
             if (AuctionData.winningUser.equals("None")) {
                 lblHighestBidder.setText("Auction ended with no bids.");
             } else {
-                lblHighestBidder.setText("WINNER: " + AuctionData.winningUser + " at $" + AuctionData.currentPrice + "!");
+                lblHighestBidder.setText("WINNER: " + AuctionData.winningUser + " at ₹" + AuctionData.currentPrice + "!");
             }
 
             btnBid100.setEnabled(false);
@@ -388,16 +413,19 @@ class AuctionRoomFrame extends Frame implements ActionListener {
         if (e.getSource() == btnBid100) {
             AuctionData.currentPrice += 100;
             AuctionData.winningUser = userName;
+            AuctionData.auctionHistory.add("[BID] " + userName + " placed bid: ₹" + AuctionData.currentPrice + " (+₹100)");
             AuctionData.resetAndStartTimer(); 
             AuctionData.broadcastUpdate();
         } else if (e.getSource() == btnBid500) {
             AuctionData.currentPrice += 500;
             AuctionData.winningUser = userName;
+            AuctionData.auctionHistory.add("[BID] " + userName + " placed bid: ₹" + AuctionData.currentPrice + " (+₹500)");
             AuctionData.resetAndStartTimer(); 
             AuctionData.broadcastUpdate();
         } else if (e.getSource() == btnBid1000) {
             AuctionData.currentPrice += 1000;
             AuctionData.winningUser = userName;
+            AuctionData.auctionHistory.add("[BID] " + userName + " placed bid: ₹" + AuctionData.currentPrice + " (+₹1000)");
             AuctionData.resetAndStartTimer(); 
             AuctionData.broadcastUpdate();
         } else if (e.getSource() == btnClose) {
